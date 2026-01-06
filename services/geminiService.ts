@@ -40,12 +40,56 @@ export const generateStoryStructure = async (prompt: string): Promise<Story> => 
   return {
     title: rawJson.title,
     scenes: rawJson.scenes.map((s: any, index: number) => ({
-      id: `scene-${index}`,
+      id: `scene-${Date.now()}-${index}`,
       text: s.text,
       imagePrompt: s.imagePrompt,
       isGeneratingImage: false
     }))
   };
+};
+
+export const extendStory = async (story: Story, extensionPrompt: string): Promise<Scene[]> => {
+  const ai = getAIClient();
+  const context = story.scenes.map((s, i) => `Scene ${i + 1}: ${s.text}`).join('\n');
+  
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-pro-preview',
+    contents: `You are continuing a story titled "${story.title}". 
+    The story so far:
+    ${context}
+
+    The user wants to add more to the story with this instruction: "${extensionPrompt}". 
+    Provide 2 more distinct scenes that naturally follow the current narrative and move the plot forward.
+    For each scene, provide the narrative text and a descriptive prompt for an image generator.`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          newScenes: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                text: { type: Type.STRING },
+                imagePrompt: { type: Type.STRING }
+              },
+              required: ["text", "imagePrompt"]
+            }
+          }
+        },
+        required: ["newScenes"]
+      }
+    }
+  });
+
+  const rawJson = JSON.parse(response.text);
+  return rawJson.newScenes.map((s: any, index: number) => ({
+    id: `scene-ext-${Date.now()}-${index}`,
+    text: s.text,
+    imagePrompt: s.imagePrompt,
+    isGeneratingImage: false
+  }));
 };
 
 export const generateSceneImage = async (prompt: string): Promise<string> => {
@@ -73,7 +117,6 @@ export const generateSceneImage = async (prompt: string): Promise<string> => {
 export const editSceneImage = async (base64Image: string, instruction: string): Promise<string> => {
   const ai = getAIClient();
   
-  // Extract data and mime type from data URL
   const match = base64Image.match(/^data:(image\/\w+);base64,(.+)$/);
   if (!match) throw new Error("Invalid image format");
   const mimeType = match[1];

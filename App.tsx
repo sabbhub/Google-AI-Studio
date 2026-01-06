@@ -1,14 +1,16 @@
 
 import React, { useState, useCallback } from 'react';
-import { generateStoryStructure, generateSceneImage, editSceneImage } from './services/geminiService';
+import { generateStoryStructure, generateSceneImage, editSceneImage, extendStory } from './services/geminiService';
 import { Story, Scene } from './types';
 import { SceneCard } from './components/SceneCard';
 import { LoadingSpinner } from './components/LoadingSpinner';
 
 const App: React.FC = () => {
   const [prompt, setPrompt] = useState('');
+  const [extensionPrompt, setExtensionPrompt] = useState('');
   const [story, setStory] = useState<Story | null>(null);
   const [isGeneratingStory, setIsGeneratingStory] = useState(false);
+  const [isExtendingStory, setIsExtendingStory] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleGenerateStory = async (e: React.FormEvent) => {
@@ -23,7 +25,7 @@ const App: React.FC = () => {
       const newStory = await generateStoryStructure(prompt);
       setStory(newStory);
       
-      // Immediately start generating images for all scenes
+      // Immediately start generating images for all initial scenes
       newStory.scenes.forEach((scene) => {
         generateImageForScene(scene.id, scene.imagePrompt);
       });
@@ -64,6 +66,38 @@ const App: React.FC = () => {
       });
     }
   }, []);
+
+  const handleExtendStory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!extensionPrompt.trim() || !story) return;
+
+    setIsExtendingStory(true);
+    setError(null);
+    const instruction = extensionPrompt;
+    setExtensionPrompt('');
+
+    try {
+      const newScenes = await extendStory(story, instruction);
+      
+      setStory(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          scenes: [...prev.scenes, ...newScenes]
+        };
+      });
+
+      // Start image generation for the new scenes
+      newScenes.forEach(scene => {
+        generateImageForScene(scene.id, scene.imagePrompt);
+      });
+    } catch (err) {
+      console.error(err);
+      setError("The narrative thread broke. Could not extend the story.");
+    } finally {
+      setIsExtendingStory(false);
+    }
+  };
 
   const handleEditImage = async (sceneId: string, instruction: string) => {
     setStory(prev => {
@@ -182,7 +216,7 @@ const App: React.FC = () => {
                   <div className="w-24 h-1 bg-indigo-600 mx-auto rounded-full"></div>
                 </div>
 
-                <div className="max-w-3xl mx-auto">
+                <div className="max-w-3xl mx-auto space-y-12">
                   {story.scenes.map((scene) => (
                     <SceneCard 
                       key={scene.id} 
@@ -190,9 +224,42 @@ const App: React.FC = () => {
                       onEditImage={handleEditImage} 
                     />
                   ))}
+
+                  {/* Extension Area */}
+                  <div className="pt-8 pb-16 border-t border-slate-100">
+                    {isExtendingStory ? (
+                      <LoadingSpinner message="Extending the story..." />
+                    ) : (
+                      <div className="bg-slate-50 p-8 rounded-3xl border border-slate-200 shadow-inner">
+                        <div className="mb-6">
+                          <h3 className="text-lg font-bold text-slate-900 mb-1">What happens next?</h3>
+                          <p className="text-sm text-slate-500">Add a new twist, a new character, or continue the scene.</p>
+                        </div>
+                        <form onSubmit={handleExtendStory} className="relative">
+                          <input
+                            type="text"
+                            value={extensionPrompt}
+                            onChange={(e) => setExtensionPrompt(e.target.value)}
+                            placeholder="Continue the journey..."
+                            className="w-full bg-white border border-slate-300 rounded-2xl px-6 py-4 text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                          />
+                          <button
+                            type="submit"
+                            disabled={!extensionPrompt.trim() || isExtendingStory}
+                            className="absolute right-2 top-2 bottom-2 bg-slate-900 text-white px-6 rounded-xl text-sm font-semibold hover:bg-black transition-colors disabled:bg-slate-300 flex items-center gap-2"
+                          >
+                            Add Chapter
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                              <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                            </svg>
+                          </button>
+                        </form>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <footer className="text-center pt-8 pb-12 border-t border-slate-200">
+                <footer className="text-center pb-12">
                   <p className="text-slate-400 text-sm italic">Fin. Created by StoryWeaver AI.</p>
                 </footer>
               </>
@@ -201,7 +268,7 @@ const App: React.FC = () => {
         )}
 
         {error && (
-          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-red-50 border border-red-200 text-red-600 px-6 py-3 rounded-xl shadow-lg flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4">
+          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-red-50 border border-red-200 text-red-600 px-6 py-3 rounded-xl shadow-lg flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4 z-50">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
             </svg>
